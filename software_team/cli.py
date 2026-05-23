@@ -48,7 +48,6 @@ def search_directory(directory_path: str, search_term: str) -> str:
     """Searches a directory for a specific text string. Returns a list of file paths containing the text."""
     matches = []
     for root, _, files in os.walk(directory_path):
-        # Skip heavy/system folders to save time
         if any(skip in root for skip in ["node_modules", ".git", ".nuxt", "vendor"]):
             continue
             
@@ -76,9 +75,8 @@ file_tools = [read_local_file, write_local_file, search_directory]
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.5-flash",
     temperature=0.2,
-    api_key="YOUR_API_KEY_HERE" # <--- INSERT YOUR API KEY HERE
+    api_key="YOUR_API_KEY_HERE" # <--- IMPORTANT: DO NOT COMMIT YOUR REAL KEY TO GITHUB!
 )
-# The agentic version of the model that has access to your file system
 agentic_llm = llm.bind_tools(file_tools)
 
 # ==========================================
@@ -165,6 +163,7 @@ def dev_1_agent(state: TeamState):
     business_map = state.get("business_logic_map", "")
     arch_map = state.get("architecture_map", "")
     repo_paths = state.get("repo_paths", {})
+    qa_feedback = state.get("qa_feedback", "No previous QA feedback.") # <--- NEW: Grab QA notes if rejected!
 
     dev_1_prompt = f"""You are an Elite Senior Developer following Andrej Karpathy's engineering philosophy.
     
@@ -175,6 +174,7 @@ def dev_1_agent(state: TeamState):
     Target Repositories: {repo_paths}
     Business Logic: {business_map}
     Architecture Constraints: {arch_map}
+    Previous QA Feedback (Fix these if present!): {qa_feedback} 
     
     EXECUTION:
     1. Search and read the target files.
@@ -185,7 +185,6 @@ def dev_1_agent(state: TeamState):
     messages = [HumanMessage(content=dev_1_prompt)]
     response = agentic_llm.invoke(messages)
     
-    # --- TOOL LOOP ---
     while response.tool_calls:
         messages.append(response)
         for tool_call in response.tool_calls:
@@ -235,7 +234,6 @@ def dev_2_agent(state: TeamState):
     messages = [HumanMessage(content=dev_2_prompt)]
     response = agentic_llm.invoke(messages)
     
-    # --- TOOL LOOP ---
     while response.tool_calls:
         messages.append(response)
         for tool_call in response.tool_calls:
@@ -260,6 +258,55 @@ def dev_2_agent(state: TeamState):
 
     return {"current_code": content}
 
+def qa_1_agent(state: TeamState):
+    print("\n🕵️‍♀️ [QA 1: The Breaker] is hunting for edge cases and bugs...")
+    
+    requirements = state.get("user_requirements", "")
+    current_code = state.get("current_code", "")
+
+    qa_1_prompt = f"""You are the Lead QA Tester. Your ONLY job is to find flaws in the code.
+    Compare the User Requirements to the Draft Code. 
+    Look for edge cases, missing error handling, and security flaws.
+    
+    User Requirements: {requirements}
+    Draft Code: {current_code}
+    
+    Output a brutal, honest list of potential bugs or missed requirements. 
+    If it is absolutely perfect, say "No flaws found."
+    """
+
+    response = llm.invoke([HumanMessage(content=qa_1_prompt)])
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(item.get("text", "") if isinstance(item, dict) else str(item) for item in content)
+
+    return {"qa_feedback": content}
+
+def qa_2_agent(state: TeamState):
+    print("\n⚖️ [QA 2: The Lead] is making the final Pass/Fail decision...")
+    
+    qa_1_feedback = state.get("qa_feedback", "")
+    current_code = state.get("current_code", "")
+
+    qa_2_prompt = f"""You are the QA Manager. You hold the final release authority.
+    Read the code and your QA Tester's feedback.
+    
+    QA Tester Feedback: {qa_1_feedback}
+    Draft Code: {current_code}
+    
+    If the code has flaws that need fixing, output exactly: REJECTED
+    Followed by a list of what Dev 1 needs to fix.
+    
+    If the code is flawless and ready for production, output exactly: APPROVED
+    """
+
+    response = llm.invoke([HumanMessage(content=qa_2_prompt)])
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(item.get("text", "") if isinstance(item, dict) else str(item) for item in content)
+
+    return {"qa_feedback": content}
+
 # ==========================================
 # 5. GRAPH ROUTING & WIRING
 # ==========================================
@@ -269,6 +316,15 @@ def pm_router(state: TeamState):
         return "Team_Lead"
     return "Human"
 
+def qa_router(state: TeamState):
+    feedback = state.get("qa_feedback", "")
+    if "APPROVED" in feedback.upper():
+        print("\n✅ QA APPROVED! The code is going to production.")
+        return END
+    else:
+        print("\n❌ QA REJECTED! Sending back to Dev 1 to fix the bugs...")
+        return "Dev_1"
+
 workflow = StateGraph(TeamState)
 
 workflow.add_node("PM", pm_agent)
@@ -276,13 +332,17 @@ workflow.add_node("Human", human_agent)
 workflow.add_node("Team_Lead", team_lead_agent)
 workflow.add_node("Dev_1", dev_1_agent)
 workflow.add_node("Dev_2", dev_2_agent)
+workflow.add_node("QA_1", qa_1_agent) 
+workflow.add_node("QA_2", qa_2_agent) 
 
 workflow.add_edge(START, "PM")
 workflow.add_conditional_edges("PM", pm_router)
 workflow.add_edge("Human", "PM")
 workflow.add_edge("Team_Lead", "Dev_1")
 workflow.add_edge("Dev_1", "Dev_2")
-workflow.add_edge("Dev_2", END)
+workflow.add_edge("Dev_2", "QA_1")
+workflow.add_edge("QA_1", "QA_2")
+workflow.add_conditional_edges("QA_2", qa_router)
 
 app = workflow.compile()
 
