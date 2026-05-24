@@ -72,10 +72,16 @@ file_tools = [read_local_file, write_local_file, search_directory]
 # ==========================================
 # 3. LLM INITIALIZATION
 # ==========================================
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    print("\n❌ FATAL ERROR: GEMINI_API_KEY environment variable is not set.")
+    print("👉 Fix this by running: export GEMINI_API_KEY='your_api_key_here'")
+    sys.exit(1)
+
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.5-flash",
     temperature=0.2,
-    api_key="YOUR_API_KEY_HERE" # <--- IMPORTANT: DO NOT COMMIT YOUR REAL KEY TO GITHUB!
+    api_key=api_key
 )
 agentic_llm = llm.bind_tools(file_tools)
 
