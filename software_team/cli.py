@@ -131,10 +131,12 @@ def human_agent(state: TeamState):
     print("="*50)
     print("\n❓ THE PM HAS QUESTIONS FOR YOU:\n", state["clarification_questions"])
     
-    user_input = input("\n👉 Type your answers (or type 'looks good' to force approve): ")
+    user_input = input("\n👉 Type your answers (or type 'approve' to force the team to start coding): ")
     
-    if "looks good" in user_input.lower() or "approve" in user_input.lower():
-        return {"clarification_questions": "None", "human_answers": "Approved by user."}
+    override_words = ["looks good", "approve", "force", "just do it", "all of them", "fuck"]
+    if any(word in user_input.lower() for word in override_words):
+        return {"clarification_questions": "none", "human_answers": "Approved by user."}
+    
     return {"human_answers": user_input}
 
 def team_lead_agent(state: TeamState):
@@ -322,6 +324,12 @@ def pm_router(state: TeamState):
         return "Team_Lead"
     return "Human"
 
+def human_router(state: TeamState):
+    """If the user forced approval, skip the PM and go straight to the Team Lead."""
+    if state.get("human_answers", "") == "Approved by user.":
+        return "Team_Lead"
+    return "PM"
+
 def qa_router(state: TeamState):
     feedback = state.get("qa_feedback", "")
     if "APPROVED" in feedback.upper():
@@ -343,7 +351,7 @@ workflow.add_node("QA_2", qa_2_agent)
 
 workflow.add_edge(START, "PM")
 workflow.add_conditional_edges("PM", pm_router)
-workflow.add_edge("Human", "PM")
+workflow.add_conditional_edges("Human", human_router)
 workflow.add_edge("Team_Lead", "Dev_1")
 workflow.add_edge("Dev_1", "Dev_2")
 workflow.add_edge("Dev_2", "QA_1")
