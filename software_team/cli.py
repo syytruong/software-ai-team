@@ -79,7 +79,7 @@ if not api_key:
     sys.exit(1)
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-3.5-flash",
+    model="gemini-2.0-flash",
     temperature=0.2,
     api_key=api_key
 )
