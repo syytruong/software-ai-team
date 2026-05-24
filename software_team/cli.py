@@ -79,7 +79,7 @@ if not api_key:
     sys.exit(1)
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model="gemini-1.5-flash",
     temperature=0.2,
     api_key=api_key
 )
@@ -96,8 +96,11 @@ def pm_agent(state: TeamState):
     human_answers = state.get("human_answers", "")
 
     pm_prompt = f"""You are the lead Product Manager for a software agency.
-    Create a highly detailed 'Business Logic Map' based on user requirements.
-    If anything is ambiguous, write clarification questions. If perfect, write exactly 'None' in the QUESTIONS section.
+    Create a 'Business Logic Map' based on user requirements.
+    
+    PRAGMATISM RULE: Assess the complexity of the task. If it is a simple code cleanup (like removing console.logs), find-and-replace, or trivial script task, DO NOT overcomplicate it. Keep the map very brief and output 'None' for questions. Save your detailed architecture questions for complex feature development.
+
+    If anything is ambiguous on a complex task, write clarification questions. If perfect, write exactly 'None' in the QUESTIONS section.
 
     Requirements: {requirements}
     User's Previous Answers: {human_answers}
